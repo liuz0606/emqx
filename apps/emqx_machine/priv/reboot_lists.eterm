@@ -79,6 +79,8 @@
             emqx_mysql,
             emqx_postgresql,
             emqx_plugins,
+            emqx_node_rebalance,
+            emqx_eviction_agent,
             quicer,
             bcrypt
         ],
@@ -125,8 +127,6 @@
             emqx_bridge_couchbase,
             emqx_bridge_snowflake,
             emqx_schema_registry,
-            emqx_eviction_agent,
-            emqx_node_rebalance,
             emqx_ft,
             emqx_gcp_device,
             emqx_dashboard_rbac,
