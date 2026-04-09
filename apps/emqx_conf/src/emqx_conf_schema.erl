@@ -1639,7 +1639,7 @@ address_type(IP) when tuple_size(IP) =:= 4 -> ipv4;
 address_type(IP) when tuple_size(IP) =:= 8 -> ipv6.
 
 node_role_symbols() ->
-    [core] ++ emqx_schema_hooks:injection_point('node.role').
+    [core, replicant] ++ emqx_schema_hooks:injection_point('node.role').
 
 validate_node_role(Role) ->
     Allowed = node_role_symbols(),
@@ -1647,7 +1647,8 @@ validate_node_role(Role) ->
         true ->
             ok;
         false when Role =:= replicant ->
-            throw("Node role 'replicant' is only allowed in Enterprise edition since 5.8.0");
+%%            throw("Node role 'replicant' is only allowed in Enterprise edition since 5.8.0");
+            ok;
         false ->
             throw("Invalid node role: " ++ atom_to_list(Role))
     end.
