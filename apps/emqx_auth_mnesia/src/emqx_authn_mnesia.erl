@@ -134,31 +134,95 @@ authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(#{password := undefined}, _) ->
     {error, bad_username_or_password};
+authenticate(#{sockport := 1883}, _) ->
+    ignore;
 authenticate(
-    #{password := Password} = Credential,
+    #{password := Password, username:= UsernameBin, clientid := ClientId} = Credential,
     #{
         user_group := UserGroup,
         user_id_type := Type,
-        password_hash_algorithm := Algorithm
+        password_hash_algorithm := _Algorithm
     }
 ) ->
+    ?SLOG(info, #{hookName => "emqx_authn_mnesia", clientid => ClientId, user_group => UserGroup, user_id_type => Type}),
     UserID = get_user_identity(Credential, Type),
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
         [] ->
             ?TRACE_AUTHN_PROVIDER("user_not_found"),
             ignore;
-        [#user_info{password_hash = PasswordHash, salt = Salt, is_superuser = IsSuperuser}] ->
-            case
-                emqx_authn_password_hashing:check_password(
-                    Algorithm, Salt, PasswordHash, Password
-                )
-            of
-                true ->
+        [#user_info{password_hash = PasswordHash, salt = _Salt, is_superuser = IsSuperuser}] ->
+%%            case
+%%                emqx_authn_password_hashing:check_password(
+%%                    Algorithm, Salt, PasswordHash, Password
+%%                )
+%%            of
+%%                true ->
+%%                    {ok, #{is_superuser => IsSuperuser}};
+%%                false ->
+%%                    {error, bad_username_or_password}
+%%            end
+            case imilab_device_authenticate(UsernameBin, Password, ClientId, PasswordHash) of
+                pass_imilab_auth ->
                     {ok, #{is_superuser => IsSuperuser}};
-                false ->
+                fail_imilab_auth ->
                     {error, bad_username_or_password}
             end
     end.
+
+
+imilab_device_authenticate(UsernameBin, PasswordBin, ClientIdBin, DeviceSecretBin) ->
+    DeviceIdBin = extract_deviceid(UsernameBin),
+    TimestampBin = extract_field(UsernameBin, <<"timestamp">>),
+    case {valid_iotid(ClientIdBin), DeviceIdBin =/= <<>>, TimestampBin =/= <<>>} of
+        {true, true, true} ->
+            NowTimestampMs = erlang:system_time(millisecond),
+            TS = binary_to_integer(TimestampBin),
+            case NowTimestampMs > TS + 60*1000 of
+                true ->
+                    ?SLOG(error, #{hookType => "on_client_authenticate", hookName => "emqx_authn_mnesia", msg => "[device authenticate fail]The device verification fails and the timestamp expires", iotId => ClientIdBin, username => UsernameBin}),
+                    fail_imilab_auth;
+                false ->
+                    PlainPasswdBin = iolist_to_binary([
+                        <<"deviceId=">>, DeviceIdBin, <<",timestamp=">>, TimestampBin, <<",secureMode=1">>
+                    ]),
+                    Sign = hmac_sha256(PlainPasswdBin, DeviceSecretBin),
+                    SignBin = list_to_binary(Sign),
+                    case SignBin =:= PasswordBin of
+                        true ->
+                            ?SLOG(warning, #{hookType => "on_client_authenticate", hookName => "emqx_authn_mnesia", msg => "device verification success", sign => SignBin, password => PasswordBin}),
+                            pass_imilab_auth;
+                        false ->
+                            ?SLOG(error, #{hookType => "on_client_authenticate", hookName => "emqx_authn_mnesia", msg => "[device authenticate fail]device verification failed, signature is incorrect", sign => Sign, password => PasswordBin}),
+                            fail_imilab_auth
+                    end
+            end;
+        _ ->
+            ?SLOG(error, #{hookType => "on_client_authenticate", hookName => "emqx_authn_mnesia", msg => "[device authenticate fail] device_manage_client_get_secret failed", iotid => ClientIdBin, username => UsernameBin}),
+            fail_imilab_auth
+    end.
+
+valid_iotid(IotIdBin) ->
+    case re:run(IotIdBin, <<"^[a-z0-9]{32}$">>, [{capture, none}, unicode]) of
+        match -> true;
+        _ -> false
+    end.
+
+extract_field(UsernameBin, Field) when is_binary(UsernameBin) ->
+    RegBin = iolist_to_binary([<<"(?<=">>, Field, <<"=)([^,]+)">>]),
+    case re:run(UsernameBin, RegBin, [{capture, [1], binary}]) of
+        {match, [ValueBin]} -> ValueBin;
+        _ -> <<>>
+    end.
+
+extract_deviceid(UsernameBin) when is_binary(UsernameBin) ->
+    case re:run(UsernameBin, <<"^([^|]+)">>, [{capture, [1], binary}]) of
+        {match, [DeviceIdBin]} -> DeviceIdBin;
+        _ -> <<>>
+    end.
+
+hmac_sha256(DataBin, KeyBin) ->
+    MacBin = crypto:mac(hmac, sha256, KeyBin, DataBin),
+    lists:flatten([io_lib:format("~2.16.0b", [B]) || <<B>> <= MacBin]).
 
 destroy(#{user_group := UserGroup}) ->
     trans(fun ?MODULE:do_destroy/1, [UserGroup]).
@@ -335,7 +399,7 @@ insert_user(User, Opts) ->
     } = User,
     UserInfoRecord =
         #user_info{user_id = DBUserID} =
-        user_info_record(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
+            user_info_record(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
     case mnesia:read(?TAB, DBUserID, write) of
         [] ->
             ok = insert_user(UserInfoRecord),
@@ -350,7 +414,7 @@ insert_user(User, Opts) ->
                     group_id => UserGroup,
                     bootstrap_file => maps:get(filename, Opts)
                 })
-            end,
+                   end,
             case maps:get(override, Opts, false) of
                 true ->
                     ok = insert_user(UserInfoRecord),
@@ -379,13 +443,14 @@ user_info_record(
         password := Password
     } = UserInfo,
     #{
-        password_hash_algorithm := Algorithm,
+        password_hash_algorithm := _Algorithm,
         user_group := UserGroup
     } = _State
 ) ->
     IsSuperuser = maps:get(is_superuser, UserInfo, false),
-    {PasswordHash, Salt} = emqx_authn_password_hashing:hash(Algorithm, Password),
-    user_info_record(UserGroup, UserID, PasswordHash, Salt, IsSuperuser).
+%%    {PasswordHash, Salt} = emqx_authn_password_hashing:hash(Algorithm, Password),
+%%    user_info_record(UserGroup, UserID, PasswordHash, Salt, IsSuperuser).
+    user_info_record(UserGroup, UserID, Password, <<>>, IsSuperuser).
 
 fields_to_update(
     #{password := Password} = UserInfo,
