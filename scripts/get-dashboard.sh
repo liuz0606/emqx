@@ -37,12 +37,9 @@ if [ -d "$DASHBOARD_PATH/www" ] && [ "$(version)" = "$VERSION" ]; then
 fi
 
 echo "Downloading dashboard from: $DIRECT_DOWNLOAD_URL"
-curl -L --silent --show-error \
-     --header "Accept: application/octet-stream" \
-     --output "${RELEASE_ASSET_FILE}" \
-     "$DIRECT_DOWNLOAD_URL"
+echo "Using local dashboard zip: emqx-dashboard-v1.10.4.zip"
 
-unzip -o -q "$RELEASE_ASSET_FILE" -d "$DASHBOARD_PATH"
+unzip -o -q emqx-dashboard-v1.10.4.zip -d "$DASHBOARD_PATH"
 rm -rf "$DASHBOARD_PATH/www"
 mv "$DASHBOARD_PATH/dist" "$DASHBOARD_PATH/www"
 rm -f "$RELEASE_ASSET_FILE"
