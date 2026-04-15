@@ -146,5 +146,5 @@
         ],
     %% must always be of type `load'
     ce_business_apps =>
-        [emqx_telemetry]
+        []
 }.
