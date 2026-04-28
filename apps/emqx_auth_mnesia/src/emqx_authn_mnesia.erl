@@ -165,7 +165,9 @@ authenticate(
                 pass_imilab_auth ->
                     {ok, #{is_superuser => IsSuperuser}};
                 fail_imilab_auth ->
-                    {error, bad_username_or_password}
+                    {error, bad_username_or_password};
+                fail_imilab_password_auth ->
+                    ignore
             end
     end.
 
@@ -193,7 +195,7 @@ imilab_device_authenticate(UsernameBin, PasswordBin, ClientIdBin, DeviceSecretBi
                             pass_imilab_auth;
                         false ->
                             ?SLOG(error, #{hookType => "on_client_authenticate", hookName => "emqx_authn_mnesia", msg => "[device authenticate fail]device verification failed, signature is incorrect", sign => Sign, password => PasswordBin}),
-                            fail_imilab_auth
+                            fail_imilab_password_auth
                     end
             end;
         _ ->
