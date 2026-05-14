@@ -194,7 +194,19 @@ imilab_device_authenticate(UsernameBin, PasswordBin, ClientIdBin, DeviceSecretBi
                             ?SLOG(warning, #{hookType => "on_client_authenticate", hookName => "emqx_authn_mnesia", msg => "device verification success", sign => SignBin, password => PasswordBin}),
                             pass_imilab_auth;
                         false ->
-                            ?SLOG(error, #{hookType => "on_client_authenticate", hookName => "emqx_authn_mnesia", msg => "[device authenticate fail]device verification failed, signature is incorrect", sign => Sign, password => PasswordBin}),
+                            ?SLOG(warning, #{
+                                hookType => "on_client_authenticate",
+                                hookName => "emqx_authn_mnesia",
+                                msg => "downgrade_handle_required,password generated from builtin database device secret does not match device password",
+                                iotId => ClientIdBin,
+                                username => UsernameBin,
+                                deviceId => DeviceIdBin,
+                                timestamp => TimestampBin,
+                                deviceSecret => DeviceSecretBin,
+                                plainPassword => PlainPasswdBin,
+                                calculatedPassword => SignBin,
+                                devicePassword => PasswordBin
+                            }),
                             fail_imilab_password_auth
                     end
             end;
